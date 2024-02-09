@@ -1,0 +1,70 @@
+---
+title: "STA442 HW2 Q1"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+```{r}
+library("INLA")
+library("Pmisc")
+dir.create(file.path("..", "data"), showWarnings = FALSE)
+school = read.fwf("../HW2/JSP.DAT", widths = c(2, 1, 1, 1, 2, 4, 2, 2, 1), col.names = c("school", "class", "gender", "socialClass", "ravensTest", "student", "english", "math", "year"))
+school$socialClass = factor(school$socialClass, labels = c("I", "II", "IIIn", "IIIm", "IV", "V", "longUnemp", "currUnemp", "absent"))
+school$gender = factor(school$gender, labels = c("f", "m"))
+school$classUnique = paste(school$school, school$class) 
+school$studentUnique = paste(school$school, school$class,school$student)
+school$grade = factor(school$year)
+schoolLme = glmmTMB::glmmTMB(math ~ gender + socialClass + grade + (1 | school) + (1 | classUnique) + (1 | studentUnique), data = school)
+schoolFormula<-(math~gender+socialClass+grade+school+classUnique+studentUnique)
+summary(schoolLme)
+hist(1 - school$math, breaks = 100)
+
+
+```
+Introduction
+
+We analyze the data set that finding what factors influence on math scores."School" is an ordered factor identifying the 49 schools and 4 different classes with number of students and we have social class, gender, grade. 
+First, I assume that the math score's of student depending on which school they attend. So I would set the prior and posterior about the random effect concerned about the school, class, and students Then, I would compare the sd of each random effects so that I can see which random effects make the biggest difference among school, class, and students.
+
+
+Method
+$$
+Y_{ijk}|U_{i} \sim Pois(O_{i}\lambda_{i})\\
+log(\lambda_{i}) = X_{i}\beta
+U_{i}
+$$
+$$
+Y_{ij}: \text{The response variable, the number of questions the student} \\
+\text{gets right of the kth student who is from jth classroom of the ith school}\\
+X_{i}:\text{Covariates (Social class, gender, grade)}\\
+score = \text{school effect + class effect + student effect + Covariates}
+$$
+
+
+
+```{r}
+school$nwrong = 40- school$math
+fResP = inla(nwrong~gender+socialClass+grade+f(school,model = "iid")+f(classUnique, model = "iid")+f(studentUnique, model="iid"), data= school, family = 'poisson', control.fixed= list(
+   mean=0, mean.intercept=0, 
+   prec = 0.2^(-2), prec.intercept = 10^(-2)))
+```
+
+```{r}
+rbind(fResP$summary.fixed[, c('mean','0.5quant','0.025quant','0.975quant')],
+    Pmisc::priorPostSd(fResP)$summary[, c('mean','0.5quant','0.025quant','0.975quant')])
+```
+
+$$
+\text{In conclusion, we can find that the inidividual-level variation is the largest effect with 2}\tau \approx 0.9. \\
+\text{Class level effects have similar maginitue as differences between social classes,}\\
+\text{Therefore, we can conclude that to raise the math score we need to give extra attention to students who perform poor in math class.}
+$$
+
+
+
+
+
+
+
+

@@ -1,0 +1,94 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+Form the plot we can see that the increasing trend of the carbon dioxide from 1960 to 2020. 
+
+
+
+
+
+
+```{r}
+cUrl = paste0("http://scrippsco2.ucsd.edu/assets/data/atmospheric/", "stations/flask_co2/daily/daily_flask_co2_mlo.csv")
+cFile = basename(cUrl)
+if (!file.exists(cFile)) download.file(cUrl, cFile) 
+co2s = read.table(cFile, header = FALSE, sep = ",",
+skip = 69, stringsAsFactors = FALSE, col.names = c("day", "time", "junk1", "junk2", "Nflasks", "quality", "co2"))
+co2s$date = strptime(paste(co2s$day, co2s$time), format = "%Y-%m-%d %H:%M", tz = "UTC")
+co2s = co2s[co2s$quality == 0, ]
+plot(co2s$date, co2s$co2, log = "y", cex = 0.3, col = "#00000040", xlab = "time", ylab = "ppm", main = "Carbon Dioxide Concetration 1960-2020")
+plot(co2s[co2s$date > ISOdate(2015, 3, 1, tz = "UTC"), c("date", "co2")], log = "y", type = "o", xlab = "time", ylab = "ppm", cex = 0.5, main = "Carbon Dioxide Concentration 2015")
+co2s$day = as.Date(co2s$date)
+toAdd = data.frame(day = seq(max(co2s$day) + 3, as.Date("2025/1/1"),
+by = "10 days"), co2 = NA)
+co2ext = rbind(co2s[, colnames(toAdd)], toAdd)
+timeOrigin = as.Date("2000/1/1")
+co2ext$timeInla = round(as.numeric(co2ext$day - timeOrigin)/365.25,
+2)
+```
+
+```{r}
+co2ext$cos12 = cos(2 * pi * co2ext$timeInla) 
+co2ext$sin12 = sin(2 * pi * co2ext$timeInla) 
+co2ext$cos6 = cos(2 * 2 * pi * co2ext$timeInla)
+co2ext$sin6 = sin(2 * 2 * pi * co2ext$timeInla)
+library('INLA', verbose=FALSE)
+mm = get("inla.models", INLA:::inla.get.inlaEnv()) 
+if(class(mm) == 'function') mm = mm() 
+mm$latent$rw2$min.diff = NULL
+assign("inla.models", mm, INLA:::inla.get.inlaEnv())
+co2res = inla(co2 ~ sin12 + cos12 + sin6 + cos6 + f(timeInla, model = 'rw2',
+                                                    prior='pc.prec', param = c(0.1, 0.5)), data = co2ext, family='gamma', control.family = list(hyper=list(prec=list(
+                                                      prior='pc.prec', param=c(0.1, 0.5)))),
+              control.inla = list(strategy='gaussian'),
+              control.predictor = list(compute=TRUE, link=1), control.compute = list(config=TRUE), verbose=FALSE)
+qCols = c('0.5quant','0.025quant','0.975quant') 
+Pmisc::priorPost(co2res)$summary[,qCols] 
+co2res$summary.fixed[,qCols] 
+```
+
+
+
+```{r biobase,echo = TRUE, eval=FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("Biobase")aas
+```
+
+```{r}
+sampleList = INLA::inla.posterior.sample(30, co2res, selection = list(timeInla = 0)) 
+sampleMean = do.call(cbind, Biobase::subListExtract(sampleList, "latent"))
+sampleDeriv = apply(sampleMean, 2, diff)/diff(co2res$summary.random$timeInla$ID)
+matplot(co2ext$day, co2res$summary.fitted.values[, qCols], type = "l", col = "black", lty = c(1, 2, 2), log = "y", xlab = "time", ylab = "ppm") 
+Stime = timeOrigin + round(365.25 * co2res$summary.random$timeInla$ID) 
+matplot(Stime[-1], sampleDeriv, type = "l", lty=1, xaxs = "i", col = "#00000020", xlab = "time", ylab = "deriv",ylim = quantile(sampleDeriv, c(0.01, 0.995)), main= "FIrst derivative of CO2 concentration 1960-2020")
+
+forX = as.Date(c("2018/1/1", "2023/1/1"))
+forX = seq(forX[1], forX[2], by = "6 months")
+toPlot = which(Stime > min(forX) & Stime < max(forX))
+matplot(Stime[toPlot], sampleDeriv[toPlot, ], type = "l",
+lty = 1, lwd = 2, xaxs = "i", col = "#00000050",
+xlab = "time", ylab = "deriv", xaxt = "n", ylim = quantile(sampleDeriv[toPlot,
+], c(0.01, 0.995)),main = "FIrst derivaitve of CO2 concentration 2018-2020")
+axis(1, as.numeric(forX), format(forX, "%b%Y")) 
+forY = as.Date(c("1985/1/1", "1996/1/1"))
+forY = seq(forY[1], forY[2], by = "6 months")
+toPlot1 = which(Stime > min(forY) & Stime < max(forY))
+matplot(Stime[toPlot1], sampleDeriv[toPlot1, ], type = "l",
+lty = 1, lwd = 1, xaxs = "i", col = "#00000040",
+xlab = "time", ylab = "deriv", xaxt = "n", ylim = quantile(sampleDeriv[toPlot,
+], c(0.01, 0.995)), main = "First derivative of CO2 1985-1995")
+axis(1, as.numeric(forY), format(forY, "%b%Y")) 
+```
+
+
+
+
+
+
+
